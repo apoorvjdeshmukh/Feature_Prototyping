@@ -88,13 +88,45 @@
 
 
 
+            <!-- Shipment List -->
+
+            <div class="mb-4">
+                <div class="flex items-center justify-between mb-3 border-b border-slate-700 pb-2">
+                    <h2 class="text-xl font-semibold">Shipments</h2>
+                    <label class="flex items-center space-x-2 cursor-pointer text-sm text-slate-300 hover:text-sky-400 transition">
+                        <input type="checkbox" id="select-all-checkbox" class="w-4 h-4 text-sky-400 bg-slate-700 border-slate-600 rounded focus:ring-sky-500">
+                        <span>Select All</span>
+                    </label>
+                </div>
+
+                <!-- Selected Shipments List -->
+                <div class="mb-4">
+                    <h3 class="text-sm font-semibold text-green-400 mb-2">Selected Shipments</h3>
+                    <ul id="selected-shipment-list" class="space-y-3">
+                        <!-- Selected shipments will be injected here by JavaScript -->
+                    </ul>
+                </div>
+
+                <!-- Not Selected Shipments List -->
+                <div>
+                    <h3 class="text-sm font-semibold text-slate-400 mb-2">Not Selected Shipments</h3>
+                    <ul id="not-selected-shipment-list" class="space-y-3">
+                        <!-- Not selected shipments will be injected here by JavaScript -->
+                    </ul>
+                </div>
+            </div>
+
+
+
             <!-- Optimization Controls -->
 
-            <div class="space-y-4 mb-6 p-4 bg-slate-700 rounded-lg shadow-xl">
+            <div class="space-y-4 p-4 bg-slate-700 rounded-lg shadow-xl">
 
                 <button id="optimize-button" 
 
-                        class="w-full py-3 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg shadow-lg transition duration-150 ease-in-out">
+                        disabled
+
+                        class="w-full py-3 bg-slate-500 text-white font-semibold rounded-lg shadow-lg transition duration-150 ease-in-out cursor-not-allowed disabled:opacity-50 disabled:cursor-not-allowed">
 
                     ✨ Optimize Route
 
@@ -107,18 +139,6 @@
                 </div>
 
             </div>
-
-
-
-            <!-- Shipment List -->
-
-            <h2 class="text-xl font-semibold mb-3 border-b border-slate-700 pb-2">Shipments (11 Stops)</h2>
-
-            <ul id="shipment-list" class="space-y-3">
-
-                <!-- Shipments will be injected here by JavaScript -->
-
-            </ul>
 
         </div>
 
@@ -205,6 +225,10 @@
         let map;
 
         let routePolyline; // Variable to hold the route line for easy removal
+
+        // Track selected shipments
+
+        let selectedShipments = new Set(); // Set of shipment IDs that are selected
 
 
 
@@ -412,9 +436,13 @@
 
                 } else {
 
+                    // Check if shipment is selected (even without route)
+
+                    const isSelected = selectedShipments.has(stop.id);
+
                     label = stop.id;
 
-                    color = 'gray';
+                    color = isSelected ? 'blue' : 'gray';
 
                 }
 
@@ -524,89 +552,425 @@
 
         function renderShipmentList(shipments, route = null) {
 
-            const listEl = document.getElementById('shipment-list');
+            const selectedListEl = document.getElementById('selected-shipment-list');
 
-            listEl.innerHTML = '';
+            const notSelectedListEl = document.getElementById('not-selected-shipment-list');
 
             
 
-            // Use the route if provided, otherwise use the unsorted shipments
+            selectedListEl.innerHTML = '';
 
-            const displayList = route || shipments;
+            notSelectedListEl.innerHTML = '';
 
+            
 
+            // Create a map of route positions if route is provided
 
-            displayList.forEach((shipment, index) => {
+            const stopToRouteIndex = {};
 
-                if (shipment.id === 'DEPOT') return; // Skip depot in the list
+            if (route) {
 
+                route.forEach((routeStop, routeIndex) => {
 
+                    stopToRouteIndex[routeStop.id] = routeIndex;
 
-                const listItem = document.createElement('li');
+                });
 
-                // If route is provided, the index represents the stop number (depot is 0, first shipment is 1)
+            }
 
-                const order = route ? index : null; // Index is the stop number (after depot at 0)
+            
+
+            // Separate shipments into selected and not selected
+
+            const selectedShipmentList = [];
+
+            const notSelectedShipmentList = [];
+
+            
+
+            shipments.forEach(shipment => {
+
+                if (shipment.id === 'DEPOT') return; // Skip depot
 
                 
 
-                listItem.className = 'flex items-center space-x-3 p-3 bg-slate-700 rounded-lg transition hover:bg-slate-600 cursor-pointer shadow-md';
+                const isSelected = selectedShipments.has(shipment.id);
 
+                
 
+                if (isSelected) {
 
-                let content = `
+                    selectedShipmentList.push(shipment);
 
-                    <div class="text-sm">
+                } else {
 
-                        <div class="font-bold text-base text-sky-300">${shipment.consignee} (${shipment.id})</div>
+                    notSelectedShipmentList.push(shipment);
 
-                        <div class="text-slate-400">${shipment.address}</div>
+                }
+
+            });
+
+            
+
+            // If route is provided, use route order for selected shipments
+
+            const displaySelectedList = route ? route.filter(s => s.id !== 'DEPOT' && selectedShipments.has(s.id)) : selectedShipmentList;
+
+            
+
+            // Render selected shipments
+
+            displaySelectedList.forEach((shipment) => {
+
+                const listItem = createShipmentListItem(shipment, route, stopToRouteIndex, true);
+
+                selectedListEl.appendChild(listItem);
+
+            });
+
+            
+
+            // Render not selected shipments (only if no route is displayed)
+
+            if (!route) {
+
+                notSelectedShipmentList.forEach((shipment) => {
+
+                    const listItem = createShipmentListItem(shipment, route, stopToRouteIndex, false);
+
+                    notSelectedListEl.appendChild(listItem);
+
+                });
+
+            }
+
+            
+
+            // Update select all checkbox state
+
+            updateSelectAllCheckbox();
+
+        }
+
+        
+
+        /**
+
+         * Creates a shipment list item element
+
+         * @param {Object} shipment - The shipment object
+
+         * @param {Array|null} route - Optional route array
+
+         * @param {Object} stopToRouteIndex - Map of stop IDs to route indices
+
+         * @param {boolean} isSelected - Whether the shipment is selected
+
+         * @returns {HTMLElement} The list item element
+
+         */
+
+        function createShipmentListItem(shipment, route, stopToRouteIndex, isSelected) {
+
+            const listItem = document.createElement('li');
+
+            listItem.className = 'flex items-center space-x-3 p-3 bg-slate-700 rounded-lg transition hover:bg-slate-600 shadow-md';
+
+            
+
+            let content = '';
+
+            
+
+            // If route is provided and shipment is in route, show stop number
+
+            if (route && stopToRouteIndex.hasOwnProperty(shipment.id)) {
+
+                const order = stopToRouteIndex[shipment.id];
+
+                content = `
+
+                    <div class="flex-shrink-0 w-6 h-6 rounded-full bg-blue-500 text-white flex items-center justify-center font-bold text-xs">
+
+                        ${order}
 
                     </div>
 
                 `;
 
+            } else if (!route) {
 
+                // Show checkbox when not in route view
 
-                if (order !== null) {
+                content = `
 
-                     // Show the stop number badge
+                    <input type="checkbox" 
 
-                    content = `
+                           class="shipment-checkbox w-4 h-4 text-sky-400 bg-slate-700 border-slate-600 rounded focus:ring-sky-500" 
 
-                        <div class="flex-shrink-0 w-6 h-6 rounded-full bg-blue-500 text-white flex items-center justify-center font-bold text-xs">
+                           data-shipment-id="${shipment.id}"
 
-                            ${order}
+                           ${isSelected ? 'checked' : ''}>
 
-                        </div>
+                `;
 
-                        ${content}
+            }
 
-                    `;
+            
+
+            content += `
+
+                <div class="text-sm flex-1 cursor-pointer" onclick="if(map) map.flyTo([${shipment.lat}, ${shipment.lng}], 16)">
+
+                    <div class="font-bold text-base text-sky-300">${shipment.consignee} (${shipment.id})</div>
+
+                    <div class="text-slate-400">${shipment.address}</div>
+
+                </div>
+
+            `;
+
+            
+
+            listItem.innerHTML = content;
+
+            
+
+            // Add checkbox change event listener if not in route view
+
+            if (!route) {
+
+                const checkbox = listItem.querySelector('.shipment-checkbox');
+
+                if (checkbox) {
+
+                    checkbox.addEventListener('change', (e) => {
+
+                        e.stopPropagation();
+
+                        handleShipmentSelection(shipment.id, checkbox.checked);
+
+                    });
 
                 }
 
+            }
 
+            
 
-                listItem.innerHTML = content;
-
-                // Optional: add a click event to pan map to the stop
-
-                listItem.addEventListener('click', () => {
-
-                    if (map) map.flyTo([shipment.lat, shipment.lng], 16);
-
-                });
-
-
-
-                listEl.appendChild(listItem);
-
-            });
+            return listItem;
 
         }
 
 
+
+        // --- Selection Management Functions ---
+
+
+
+        /**
+
+         * Handles individual shipment selection/deselection
+
+         * @param {string} shipmentId - The ID of the shipment
+
+         * @param {boolean} isSelected - Whether the shipment is selected
+
+         */
+
+        function handleShipmentSelection(shipmentId, isSelected) {
+
+            if (isSelected) {
+
+                selectedShipments.add(shipmentId);
+
+            } else {
+
+                selectedShipments.delete(shipmentId);
+
+            }
+
+            // If route exists and selections change, clear the route
+
+            if (routePolyline) {
+
+                map.removeLayer(routePolyline);
+
+                routePolyline = null;
+
+            }
+
+            
+
+            updateOptimizeButton();
+
+            updateSelectAllCheckbox();
+
+            // Refresh map markers to reflect selection state
+
+            if (map) {
+
+                renderShipmentsOnMap(allStops);
+
+            }
+
+            // Re-render shipment lists to move items between selected/not selected
+
+            renderShipmentList(mockShipments);
+
+        }
+
+
+
+        /**
+
+         * Updates the select all checkbox state based on current selections
+
+         */
+
+        function updateSelectAllCheckbox() {
+
+            const selectAllCheckbox = document.getElementById('select-all-checkbox');
+
+            if (!selectAllCheckbox) return;
+
+            
+
+            const allSelected = mockShipments.length > 0 && 
+
+                                mockShipments.every(shipment => selectedShipments.has(shipment.id));
+
+            selectAllCheckbox.checked = allSelected;
+
+            selectAllCheckbox.indeterminate = selectedShipments.size > 0 && selectedShipments.size < mockShipments.length;
+
+        }
+
+
+
+        /**
+
+         * Handles select all checkbox change
+
+         */
+
+        function handleSelectAll(selectAll) {
+
+            if (selectAll) {
+
+                // Select all shipments
+
+                mockShipments.forEach(shipment => {
+
+                    selectedShipments.add(shipment.id);
+
+                });
+
+            } else {
+
+                // Deselect all shipments
+
+                selectedShipments.clear();
+
+            }
+
+            
+
+            // If route exists and selections change, clear the route
+
+            if (routePolyline) {
+
+                map.removeLayer(routePolyline);
+
+                routePolyline = null;
+
+            }
+
+            
+
+            updateOptimizeButton();
+
+            
+
+            // Refresh map markers to reflect selection state
+
+            if (map) {
+
+                renderShipmentsOnMap(allStops);
+
+            }
+
+            
+
+            // Re-render shipment lists to move items between selected/not selected
+
+            renderShipmentList(mockShipments);
+
+        }
+
+
+
+        /**
+
+         * Updates the optimize button state based on selection count
+
+         */
+
+        function updateOptimizeButton() {
+
+            const button = document.getElementById('optimize-button');
+
+            if (!button) return;
+
+            
+
+            const selectedCount = selectedShipments.size;
+
+            const shouldEnable = selectedCount >= 3;
+
+            
+
+            // If route is currently displayed, keep "Optimized" state
+
+            if (routePolyline && shouldEnable) {
+
+                button.disabled = false;
+
+                button.textContent = 'Optimized';
+
+                button.className = 'w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shadow-lg transition duration-150 ease-in-out';
+
+                return;
+
+            }
+
+            
+
+            button.disabled = !shouldEnable;
+
+            if (shouldEnable) {
+
+                button.textContent = '✨ Optimize Route';
+
+                button.className = 'w-full py-3 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg shadow-lg transition duration-150 ease-in-out';
+
+            } else {
+
+                button.className = 'w-full py-3 bg-slate-500 text-white font-semibold rounded-lg shadow-lg transition duration-150 ease-in-out cursor-not-allowed disabled:opacity-50 disabled:cursor-not-allowed';
+
+                if (selectedCount === 0) {
+
+                    button.textContent = '✨ Optimize Route';
+
+                } else {
+
+                    button.textContent = `✨ Optimize Route (${selectedCount}/3+ required)`;
+
+                }
+
+            }
+
+        }
 
 
 
@@ -782,13 +1146,33 @@
 
             try {
 
+                // Get only selected shipments
+
+                const selectedShipmentList = mockShipments.filter(shipment => selectedShipments.has(shipment.id));
+
+                
+
+                if (selectedShipmentList.length === 0) {
+
+                    throw new Error('No shipments selected');
+
+                }
+
+                
+
+                // Create stops array with depot and selected shipments only
+
+                const selectedStops = [DEPOT, ...selectedShipmentList];
+
+                
+
                 // Execute the optimization
 
-                const { route, totalDistance } = nearestNeighborRoute(allStops);
+                const { route, totalDistance } = nearestNeighborRoute(selectedStops);
 
 
 
-                // Update UI elements
+                // Update UI elements - show all stops but only highlight selected ones in route
 
                 renderShipmentsOnMap(allStops, route); // Re-render markers with sequence and draw line
 
@@ -812,6 +1196,16 @@
 
                 `;
 
+                
+
+                // Update button to show "Optimized" state
+
+                button.disabled = false;
+
+                button.textContent = 'Optimized';
+
+                button.className = 'w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shadow-lg transition duration-150 ease-in-out';
+
 
 
             } catch (error) {
@@ -820,11 +1214,7 @@
 
                 summaryEl.innerHTML = `<p class="text-red-400">Error: Could not calculate route. Check console for details.</p>`;
 
-            } finally {
-
-                button.disabled = false;
-
-                button.textContent = '✨ Optimize Route';
+                updateOptimizeButton();
 
             }
 
@@ -838,9 +1228,33 @@
 
             document.addEventListener('DOMContentLoaded', () => {
 
-                // Add event listener to the button
+                // Add event listener to the optimize button
 
                 document.getElementById('optimize-button').addEventListener('click', handleOptimization);
+
+                
+
+                // Add event listener to the select all checkbox
+
+                const selectAllCheckbox = document.getElementById('select-all-checkbox');
+
+                if (selectAllCheckbox) {
+
+                    selectAllCheckbox.addEventListener('change', (e) => {
+
+                        handleSelectAll(e.target.checked);
+
+                    });
+
+                }
+
+                
+
+                // Initialize button state
+
+                updateOptimizeButton();
+
+                
 
                 // Initialize map after a short delay to ensure layout is ready
 
@@ -853,6 +1267,30 @@
             // DOM is already loaded
 
             document.getElementById('optimize-button').addEventListener('click', handleOptimization);
+
+            
+
+            // Add event listener to the select all checkbox
+
+            const selectAllCheckbox = document.getElementById('select-all-checkbox');
+
+            if (selectAllCheckbox) {
+
+                selectAllCheckbox.addEventListener('change', (e) => {
+
+                    handleSelectAll(e.target.checked);
+
+                });
+
+            }
+
+            
+
+            // Initialize button state
+
+            updateOptimizeButton();
+
+            
 
             initializeMap();
 
