@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Truck Route Optimizer Prototype</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Inter Font Configuration -->
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0f172a; /* Slate-900 for dark mode vibe */
+            color: #f8fafc; /* Slate-50 */
+        }
+        /* Leaflet CSS */
+        @import url('https://unpkg.com/leaflet@1.9.4/dist/leaflet.css');
+        /* Set Map container size: This is crucial for Leaflet to work */
+        #map { 
+            height: 100%; /* Must use 100% since parent is already full viewport height */
+            width: 100%;
+        }
+    </style>
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+</head>
+<body class="overflow-hidden">
+    <div id="app" class="flex flex-col lg:flex-row h-screen">
+
+        <!-- Left Panel: Shipment List and Controls -->
+        <div class="lg:w-1/4 w-full p-6 bg-slate-800 border-r border-slate-700 overflow-y-auto">
+            <h1 class="text-3xl font-bold mb-4 text-sky-400">LA Delivery Dispatch</h1>
+            <p class="text-sm text-slate-400 mb-6">Select today's shipments and optimize the route for your drivers.</p>
+
+            <!-- Optimization Controls -->
+            <div class="space-y-4 mb-6 p-4 bg-slate-700 rounded-lg shadow-xl">
+                <button id="optimize-button" 
+                        class="w-full py-3 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg shadow-lg transition duration-150 ease-in-out">
+                    ✨ Optimize Route
+                </button>
+                <div id="route-summary" class="text-sm text-slate-300">
+                    <!-- Route summary will be displayed here -->
+                </div>
+            </div>
+
+            <!-- Shipment List -->
+            <h2 class="text-xl font-semibold mb-3 border-b border-slate-700 pb-2">Shipments (11 Stops)</h2>
+            <ul id="shipment-list" class="space-y-3">
+                <!-- Shipments will be injected here by JavaScript -->
+            </ul>
+        </div>
+
+        <!-- Right Panel: Map View -->
+        <div class="lg:w-3/4 w-full h-full">
+            <div id="map">
+                <!-- Map will be initialized here -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Use a default appId and parse firebaseConfig (required globals for the environment)
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+        
+        // --- Mock Shipment Data (Phase 1) ---
+        // Depot is the starting and ending point.
+        const DEPOT = {
+            id: 'DEPOT',
+            address: '450 S Bixel St, Los Angeles, CA 90017',
+            consignee: 'Start/End Depot',
+            lat: 34.0537,
+            lng: -118.2612
+        };
+
+        // 10 mock shipments within the LA area
+        const mockShipments = [
+            { id: 'S101', address: '1313 Disneyland Dr', consignee: 'The Mouse Corp', lat: 33.8121, lng: -117.9190 },
+            { id: 'S102', address: '800 W Olympic Blvd', consignee: 'Convention Center', lat: 34.0415, lng: -118.2704 },
+            { id: 'S103', address: '1100 S Flower St', consignee: 'Fashion Hub', lat: 34.0402, lng: -118.2662 },
+            { id: 'S104', address: '2000 N Highland Ave', consignee: 'Hollywood Bowl', lat: 34.1124, lng: -118.3392 },
+            { id: 'S105', address: '1000 S Hope St', consignee: 'DTLA Lofts', lat: 34.0452, lng: -118.2638 },
+            { id: 'S106', address: '777 S Figueroa St', consignee: 'Financial District', lat: 34.0507, lng: -118.2589 },
+            { id: 'S107', address: '500 W Pico Blvd', consignee: 'Tech Campus', lat: 34.0416, lng: -118.2690 },
+            { id: 'S108', address: '2000 E Cesar E Chavez Ave', consignee: 'East LA Market', lat: 34.0483, lng: -118.2173 },
+            { id: 'S109', address: '350 S Grand Ave', consignee: 'Museum of Art', lat: 34.0543, lng: -118.2505 },
+            { id: 'S110', address: '6000 S Sepulveda Blvd', consignee: 'Culver City Studio', lat: 33.9856, lng: -118.3970 }
+        ];
+
+        // Combine depot and shipments for the full list of stops
+        let allStops = [DEPOT, ...mockShipments];
+        let map;
+        let routePolyline; // Variable to hold the route line for easy removal
+
+        // --- Phase 2: Map Integration & Pin Drop ---
+
+        /**
+         * Initializes the Leaflet map and renders all mock shipments as markers.
+         */
+        function initializeMap() {
+            // Introduce a small delay to ensure the Flexbox container dimensions are fully settled
+            setTimeout(() => {
+                // Check if map is already initialized to prevent errors
+                if (map) map.remove();
+
+                // Initialize map centered on LA (lat: 34.0522, lng: -118.2437)
+                map = L.map('map').setView([34.0522, -118.2437], 12);
+
+                // Important: Call invalidateSize() if the map container is hidden or inside a flexible layout
+                // to force Leaflet to recalculate the container's dimensions.
+                map.invalidateSize(); 
+
+                // Add a Tile Layer (OpenStreetMap)
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '&copy; <a href="http://osm.org/copyright">OpenStreetMap</a> contributors'
+                }).addTo(map);
+
+                renderShipmentsOnMap(allStops);
+                renderShipmentList(mockShipments);
+            }, 100); // Wait 100 milliseconds
+        }
+
+        /**
+         * Renders the given list of stops as markers on the map.
+         * @param {Array<Object>} stops - Array of shipment/depot objects.
+         * @param {Array<Object>} [route=null] - Optional array of stops in optimized order.
+         */
+        function renderShipmentsOnMap(stops, route = null) {
+            // Check if map is initialized before running map-dependent code
+            if (!map) return; 
+
+            // Clear existing markers if we are re-rendering a route
+            map.eachLayer(layer => {
+                if (layer instanceof L.Marker) {
+                    map.removeLayer(layer);
+                }
+            });
+
+            // If a previous route was drawn, remove it
+            if (routePolyline) {
+                map.removeLayer(routePolyline);
+            }
+
+            stops.forEach((stop, index) => {
+                const isDepot = stop.id === 'DEPOT';
+                let markerIcon;
+                let label = isDepot ? 'D' : (route ? index : stop.id);
+                let color = isDepot ? 'red' : (route ? 'blue' : 'gray');
+
+                // Simple SVG icon for numbers/depot
+                const svgIcon = L.divIcon({
+                    className: 'custom-marker',
+                    html: `<div style="background-color: ${color}; color: white; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 12px; border: 2px solid white; box-shadow: 0 0 5px ${color};">${label}</div>`,
+                    iconSize: [24, 24],
+                    iconAnchor: [12, 12]
+                });
+
+                const marker = L.marker([stop.lat, stop.lng], { icon: svgIcon })
+                    .addTo(map)
+                    .bindPopup(`<b>${stop.consignee}</b><br>${stop.address}<br>ID: ${stop.id}`);
+
+                // Add a permanent tooltip for the number if part of an optimized route
+                if (route && !isDepot) {
+                     marker.bindTooltip(`Stop ${index}`, { permanent: true, direction: 'right' }).openTooltip();
+                }
+            });
+
+            if (route) {
+                drawRoutePolyline(route);
+            }
+        }
+
+        /**
+         * Draws the optimized route polyline on the map.
+         * @param {Array<Object>} optimizedRoute - The sequenced list of stops.
+         */
+        function drawRoutePolyline(optimizedRoute) {
+            if (!map) return;
+            const latLngs = optimizedRoute.map(stop => [stop.lat, stop.lng]);
+            
+            // Add the Depot back as the final stop to complete the loop
+            latLngs.push([DEPOT.lat, DEPOT.lng]);
+
+            routePolyline = L.polyline(latLngs, {
+                color: '#22c55e', // Green for the route line
+                weight: 5,
+                opacity: 0.8,
+                dashArray: '10, 5' // Dashed line for visualization
+            }).addTo(map);
+
+            // Fit the map bounds to the route
+            map.fitBounds(routePolyline.getBounds());
+        }
+
+
+        /**
+         * Renders the list of shipments in the side panel.
+         * @param {Array<Object>} shipments - Array of shipment objects.
+         * @param {Array<Object>} [route=null] - Optional optimized route sequence.
+         */
+        function renderShipmentList(shipments, route = null) {
+            const listEl = document.getElementById('shipment-list');
+            listEl.innerHTML = '';
+            
+            // Use the route if provided, otherwise use the unsorted shipments
+            const displayList = route || shipments;
+
+            displayList.forEach((shipment, index) => {
+                if (shipment.id === 'DEPOT') return; // Skip depot in the list
+
+                const listItem = document.createElement('li');
+                const order = route ? index : null; // Index is the stop number (after depot at 0)
+                
+                listItem.className = 'flex items-center space-x-3 p-3 bg-slate-700 rounded-lg transition hover:bg-slate-600 cursor-pointer shadow-md';
+
+                let content = `
+                    <div class="text-sm">
+                        <div class="font-bold text-base text-sky-300">${shipment.consignee} (${shipment.id})</div>
+                        <div class="text-slate-400">${shipment.address}</div>
+                    </div>
+                `;
+
+                if (order !== null) {
+                     // Show the stop number badge
+                    content = `
+                        <div class="flex-shrink-0 w-6 h-6 rounded-full bg-blue-500 text-white flex items-center justify-content-center font-bold text-xs">
+                            ${order}
+                        </div>
+                        ${content}
+                    `;
+                }
+
+                listItem.innerHTML = content;
+                // Optional: add a click event to pan map to the stop
+                listItem.addEventListener('click', () => {
+                    if (map) map.flyTo([shipment.lat, shipment.lng], 16);
+                });
+
+                listEl.appendChild(listItem);
+            });
+        }
+
+
+        // --- Phase 3: Core Optimization Logic (Nearest Neighbor) ---
+
+        /**
+         * Calculates the distance between two lat/lng points using the Haversine formula.
+         * @param {number} lat1 - Latitude of point 1.
+         * @param {number} lng1 - Longitude of point 1.
+         * @param {number} lat2 - Latitude of point 2.
+         * @param {number} lng2 - Longitude of point 2.
+         * @returns {number} Distance in kilometers.
+         */
+        function haversineDistance(lat1, lng1, lat2, lng2) {
+            const R = 6371; // Radius of Earth in kilometers
+            const dLat = (lat2 - lat1) * (Math.PI / 180);
+            const dLng = (lng2 - lng1) * (Math.PI / 180);
+
+            const a = 
+                Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            return R * c; // Distance in km
+        }
+
+        /**
+         * Implements the Nearest Neighbor algorithm to find an optimized route.
+         * @param {Array<Object>} stops - All stops including the DEPOT.
+         * @returns {Object} {route: Array<Object>, totalDistance: number}
+         */
+        function nearestNeighborRoute(stops) {
+            let unvisited = [...stops.filter(s => s.id !== 'DEPOT')]; // Shipments only
+            let currentStop = DEPOT;
+            let optimizedRoute = [DEPOT]; // Start with the depot
+            let totalDistance = 0;
+
+            while (unvisited.length > 0) {
+                let nearestDistance = Infinity;
+                let nearestStop = null;
+                let nearestIndex = -1;
+
+                // Find the nearest unvisited stop from the current stop
+                unvisited.forEach((stop, index) => {
+                    const dist = haversineDistance(
+                        currentStop.lat, currentStop.lng, 
+                        stop.lat, stop.lng
+                    );
+
+                    if (dist < nearestDistance) {
+                        nearestDistance = dist;
+                        nearestStop = stop;
+                        nearestIndex = index;
+                    }
+                });
+
+                // Move to the nearest stop
+                if (nearestStop) {
+                    optimizedRoute.push(nearestStop);
+                    totalDistance += nearestDistance;
+                    unvisited.splice(nearestIndex, 1); // Remove from unvisited list
+                    currentStop = nearestStop;
+                }
+            }
+
+            // Return to the depot to complete the route
+            const returnDistance = haversineDistance(
+                currentStop.lat, currentStop.lng, 
+                DEPOT.lat, DEPOT.lng
+            );
+            totalDistance += returnDistance;
+
+            return { route: optimizedRoute, totalDistance: totalDistance };
+        }
+
+        // --- Event Listener and Summary (Phase 4) ---
+
+        /**
+         * Handles the route optimization process when the button is clicked.
+         */
+        function handleOptimization() {
+            const button = document.getElementById('optimize-button');
+            const summaryEl = document.getElementById('route-summary');
+            
+            button.disabled = true;
+            button.textContent = 'Optimizing...';
+            summaryEl.innerHTML = '';
+
+            try {
+                // Execute the optimization
+                const { route, totalDistance } = nearestNeighborRoute(allStops);
+
+                // Update UI elements
+                renderShipmentsOnMap(allStops, route); // Re-render markers with sequence and draw line
+                renderShipmentList(mockShipments, route); // Re-render list in optimized order
+
+                // Display summary
+                const totalMiles = (totalDistance * 0.621371).toFixed(2);
+                summaryEl.innerHTML = `
+                    <p class="font-medium text-lg text-green-400">Route Complete!</p>
+                    <p>Total Stops: ${route.length} (including depot)</p>
+                    <p>Total Estimated Distance: ${totalMiles} miles</p>
+                    <p class="text-xs text-slate-400 mt-2">Route starts and ends at Depot.</p>
+                `;
+
+            } catch (error) {
+                console.error("Optimization failed:", error);
+                summaryEl.innerHTML = `<p class="text-red-400">Error: Could not calculate route. Check console for details.</p>`;
+            } finally {
+                button.disabled = false;
+                button.textContent = '✨ Optimize Route';
+            }
+        }
+
+        // Add event listener to the button
+        document.getElementById('optimize-button').addEventListener('click', handleOptimization);
+
+        // Initialize the application on page load
+        window.onload = initializeMap;
+    </script>
+</body>
+</html>
