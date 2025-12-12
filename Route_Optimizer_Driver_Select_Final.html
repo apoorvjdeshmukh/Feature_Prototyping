@@ -1,0 +1,2062 @@
+<!DOCTYPE html>
+
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Truck Route Optimizer Prototype</title>
+
+    <!-- Tailwind CSS CDN -->
+
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Inter Font Configuration -->
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet">
+
+    <!-- Leaflet CSS - Must be loaded before Leaflet JS -->
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+    <style>
+
+        body {
+
+            font-family: 'Inter', sans-serif;
+
+            background-color: #0f172a; /* Slate-900 for dark mode vibe */
+
+            color: #f8fafc; /* Slate-50 */
+
+            margin: 0;
+
+            padding: 0;
+
+        }
+
+        /* Set Map container size: This is crucial for Leaflet to work */
+
+        #map { 
+
+            height: 100%; /* Must use 100% since parent is already full viewport height */
+
+            width: 100%;
+
+            min-height: 400px; /* Ensure minimum height */
+
+            position: relative; /* Required for Leaflet */
+
+            z-index: 0; /* Ensure map is behind other elements */
+
+        }
+        
+        /* Ensure the map container parent has proper height */
+
+        #app > div:last-child {
+
+            position: relative;
+
+        }
+
+    </style>
+
+    <!-- Leaflet JS -->
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+</head>
+
+<body class="overflow-hidden">
+
+    <div id="app" class="flex flex-col lg:flex-row h-screen">
+
+
+
+        <!-- Left Panel: Shipment List and Controls -->
+
+        <div class="lg:w-1/4 w-full p-6 bg-slate-800 border-r border-slate-700 overflow-y-auto">
+
+            <h1 class="text-3xl font-bold mb-4 text-sky-400">LA Delivery Dispatch</h1>
+
+            <p class="text-sm text-slate-400 mb-6">Select today's shipments and optimize the route for your drivers.</p>
+
+
+
+            <!-- Shipment List -->
+
+            <div class="mb-4">
+                <div class="flex items-center justify-between mb-3 border-b border-slate-700 pb-2">
+                    <h2 class="text-xl font-semibold">Shipments</h2>
+                    <label class="flex items-center space-x-2 cursor-pointer text-sm text-slate-300 hover:text-sky-400 transition">
+                        <input type="checkbox" id="select-all-checkbox" class="w-4 h-4 text-sky-400 bg-slate-700 border-slate-600 rounded focus:ring-sky-500">
+                        <span>Select All</span>
+                    </label>
+                </div>
+
+                <!-- Selected Shipments List -->
+                <div class="mb-4">
+                    <h3 class="text-sm font-semibold text-green-400 mb-2">Selected Shipments</h3>
+                    <ul id="selected-shipment-list" class="space-y-3">
+                        <!-- Selected shipments will be injected here by JavaScript -->
+                    </ul>
+                </div>
+
+                <!-- Not Selected Shipments List -->
+                <div>
+                    <h3 class="text-sm font-semibold text-slate-400 mb-2">Not Selected Shipments</h3>
+                    <ul id="not-selected-shipment-list" class="space-y-3">
+                        <!-- Not selected shipments will be injected here by JavaScript -->
+                    </ul>
+                </div>
+            </div>
+
+
+
+            <!-- Optimization Controls -->
+
+            <div class="space-y-4 p-4 bg-slate-700 rounded-lg shadow-xl">
+
+                <button id="optimize-button" 
+
+                        disabled
+
+                        class="w-full py-3 bg-slate-500 text-white font-semibold rounded-lg shadow-lg transition duration-150 ease-in-out cursor-not-allowed disabled:opacity-50 disabled:cursor-not-allowed">
+
+                    ✨ Optimize Route
+
+                </button>
+
+                <div id="route-summary" class="text-sm text-slate-300">
+
+                    <!-- Route summary will be displayed here -->
+
+                </div>
+
+                
+
+                <!-- Driver Selection (shown after route optimization) -->
+
+                <div id="driver-selection-container" class="hidden mt-4 pt-4 border-t border-slate-600">
+
+                    <h3 class="text-lg font-semibold mb-3 text-sky-400">Assign Driver</h3>
+
+                    <p class="text-sm text-slate-400 mb-3">Select an available driver for this route:</p>
+
+                    <ul id="driver-list" class="space-y-2 max-h-64 overflow-y-auto">
+
+                        <!-- Drivers will be injected here by JavaScript -->
+
+                    </ul>
+
+                    <div id="selected-driver-display" class="mt-4 p-3 bg-slate-600 rounded-lg hidden">
+
+                        <p class="text-sm text-slate-300">
+
+                            <span class="font-semibold text-green-400">Assigned Driver:</span>
+
+                            <span id="selected-driver-name" class="ml-2"></span>
+
+                        </p>
+
+                    </div>
+
+                </div>
+
+            </div>
+
+        </div>
+
+
+
+        <!-- Right Panel: Map View -->
+
+        <div class="lg:w-3/4 w-full h-full">
+
+            <div id="map">
+
+                <!-- Map will be initialized here -->
+
+            </div>
+
+        </div>
+
+    </div>
+
+
+
+    <!-- Assignment Summary Modal -->
+
+    <div id="assignment-modal-overlay" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+
+        <div class="bg-slate-800 rounded-lg shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto border border-slate-700">
+
+            <!-- Modal Header -->
+
+            <div class="flex items-center justify-between p-6 border-b border-slate-700">
+
+                <h2 class="text-2xl font-bold text-sky-400">Assignment Summary</h2>
+
+                <button id="close-modal-btn" class="text-slate-400 hover:text-white transition">
+
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+
+                    </svg>
+
+                </button>
+
+            </div>
+
+
+
+            <!-- Modal Content -->
+
+            <div class="p-6 space-y-6">
+
+                <!-- Driver Details Section -->
+
+                <div>
+
+                    <h3 class="text-xl font-semibold mb-4 text-green-400 border-b border-slate-700 pb-2">Driver Details</h3>
+
+                    <div id="modal-driver-details" class="grid grid-cols-2 gap-4">
+
+                        <!-- Driver details will be populated here -->
+
+                    </div>
+
+                </div>
+
+
+
+                <!-- Shipments Assigned Section -->
+
+                <div>
+
+                    <h3 class="text-xl font-semibold mb-4 text-green-400 border-b border-slate-700 pb-2">Shipments Assigned</h3>
+
+                    <div id="modal-shipments-list" class="space-y-3">
+
+                        <!-- Shipments will be populated here -->
+
+                    </div>
+
+                </div>
+
+
+
+                <!-- Route Preview Section -->
+
+                <div>
+
+                    <h3 class="text-xl font-semibold mb-4 text-green-400 border-b border-slate-700 pb-2">Route Preview</h3>
+
+                    <div id="modal-route-preview" class="space-y-3">
+
+                        <!-- Route preview will be populated here -->
+
+                    </div>
+
+                </div>
+
+            </div>
+
+
+
+            <!-- Modal Footer -->
+
+            <div class="flex justify-end p-6 border-t border-slate-700">
+
+                <button id="confirm-assignment-btn" class="px-6 py-2 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition">
+
+                    Confirm Assignment
+
+                </button>
+
+            </div>
+
+        </div>
+
+    </div>
+
+
+
+    <script>
+
+        // Use a default appId and parse firebaseConfig (required globals for the environment)
+
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+
+        
+
+        // --- Mock Shipment Data (Phase 1) ---
+
+        // Depot is the starting and ending point.
+
+        const DEPOT = {
+
+            id: 'DEPOT',
+
+            address: '450 S Bixel St, Los Angeles, CA 90017',
+
+            consignee: 'Start/End Depot',
+
+            lat: 34.0537,
+
+            lng: -118.2612
+
+        };
+
+
+
+        // 10 mock shipments within the LA area
+
+        const mockShipments = [
+
+            { id: 'S1', address: '1313 Disneyland Dr', consignee: 'The Mouse Corp', lat: 33.8121, lng: -117.9190 },
+
+            { id: 'S2', address: '800 W Olympic Blvd', consignee: 'Convention Center', lat: 34.0415, lng: -118.2704 },
+
+            { id: 'S3', address: '1100 S Flower St', consignee: 'Fashion Hub', lat: 34.0402, lng: -118.2662 },
+
+            { id: 'S4', address: '2000 N Highland Ave', consignee: 'Hollywood Bowl', lat: 34.1124, lng: -118.3392 },
+
+            { id: 'S5', address: '1000 S Hope St', consignee: 'DTLA Lofts', lat: 34.0452, lng: -118.2638 },
+
+            { id: 'S6', address: '777 S Figueroa St', consignee: 'Financial District', lat: 34.0507, lng: -118.2589 },
+
+            { id: 'S7', address: '500 W Pico Blvd', consignee: 'Tech Campus', lat: 34.0416, lng: -118.2690 },
+
+            { id: 'S8', address: '2000 E Cesar E Chavez Ave', consignee: 'East LA Market', lat: 34.0483, lng: -118.2173 },
+
+            { id: 'S9', address: '350 S Grand Ave', consignee: 'Museum of Art', lat: 34.0543, lng: -118.2505 },
+
+            { id: 'S10', address: '6000 S Sepulveda Blvd', consignee: 'Culver City Studio', lat: 33.9856, lng: -118.3970 }
+
+        ];
+
+
+
+        // --- Mock Driver Data ---
+
+        const mockDrivers = [
+
+            { id: 'D1', name: 'Michael Chen', phone: '(555) 123-4567', vehicle: 'Truck-101', status: 'available' },
+
+            { id: 'D2', name: 'Sarah Johnson', phone: '(555) 234-5678', vehicle: 'Truck-102', status: 'available' },
+
+            { id: 'D3', name: 'James Rodriguez', phone: '(555) 345-6789', vehicle: 'Van-201', status: 'available' },
+
+            { id: 'D4', name: 'Emily Davis', phone: '(555) 456-7890', vehicle: 'Truck-103', status: 'available' },
+
+            { id: 'D5', name: 'David Martinez', phone: '(555) 567-8901', vehicle: 'Truck-104', status: 'available' },
+
+            { id: 'D6', name: 'Lisa Anderson', phone: '(555) 678-9012', vehicle: 'Van-202', status: 'available' },
+
+            { id: 'D7', name: 'Robert Taylor', phone: '(555) 789-0123', vehicle: 'Truck-105', status: 'available' },
+
+            { id: 'D8', name: 'Jennifer White', phone: '(555) 890-1234', vehicle: 'Van-203', status: 'available' },
+
+            { id: 'D9', name: 'Christopher Lee', phone: '(555) 901-2345', vehicle: 'Truck-106', status: 'available' },
+
+            { id: 'D10', name: 'Amanda Brown', phone: '(555) 012-3456', vehicle: 'Van-204', status: 'available' }
+
+        ];
+
+
+
+        // Combine depot and shipments for the full list of stops
+
+        let allStops = [DEPOT, ...mockShipments];
+
+        let map;
+
+        let routePolyline; // Variable to hold the route line for easy removal
+
+        // Track selected shipments
+
+        let selectedShipments = new Set(); // Set of shipment IDs that are selected
+
+        // Track selected driver
+
+        let selectedDriver = null; // Currently selected driver for the route
+
+        // Track current optimized route
+
+        let currentOptimizedRoute = null; // The current optimized route array
+
+        let currentRouteDistance = null; // The total distance of the current route
+
+
+
+        // --- Phase 2: Map Integration & Pin Drop ---
+
+
+
+        /**
+
+         * Initializes the Leaflet map and renders all mock shipments as markers.
+
+         */
+
+        function initializeMap() {
+
+            // Check if Leaflet is loaded
+
+            if (typeof L === 'undefined') {
+
+                console.error('Leaflet library not loaded');
+
+                return;
+
+            }
+
+            
+
+            // Check if map container exists
+
+            const mapContainer = document.getElementById('map');
+
+            if (!mapContainer) {
+
+                console.error('Map container not found');
+
+                return;
+
+            }
+
+            
+
+            // Introduce a small delay to ensure the Flexbox container dimensions are fully settled
+
+            setTimeout(() => {
+
+                try {
+
+                    // Check if map is already initialized to prevent errors
+
+                    if (map) {
+
+                        map.remove();
+
+                        map = null;
+
+                    }
+
+
+
+                    // Initialize map centered on LA (lat: 34.0522, lng: -118.2437)
+
+                    map = L.map('map', {
+
+                        preferCanvas: false
+
+                    }).setView([34.0522, -118.2437], 12);
+
+
+
+                    // Important: Call invalidateSize() if the map container is hidden or inside a flexible layout
+
+                    // to force Leaflet to recalculate the container's dimensions.
+
+                    map.invalidateSize(); 
+
+
+
+                    // Add a Tile Layer (OpenStreetMap)
+
+                    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+
+                        attribution: '&copy; <a href="http://osm.org/copyright">OpenStreetMap</a> contributors',
+
+                        maxZoom: 19
+
+                    }).addTo(map);
+
+
+
+                    // Wait a bit more before rendering to ensure tiles load
+
+                    setTimeout(() => {
+
+                        renderShipmentsOnMap(allStops);
+
+                        renderShipmentList(mockShipments);
+
+                        // Force another invalidateSize after rendering
+
+                        map.invalidateSize();
+
+                    }, 200);
+
+                } catch (error) {
+
+                    console.error('Error initializing map:', error);
+
+                }
+
+            }, 150); // Wait 150 milliseconds for layout to settle
+
+        }
+
+
+
+        /**
+
+         * Renders the given list of stops as markers on the map.
+
+         * @param {Array<Object>} stops - Array of shipment/depot objects.
+
+         * @param {Array<Object>} [route=null] - Optional array of stops in optimized order.
+
+         */
+
+        function renderShipmentsOnMap(stops, route = null) {
+
+            // Check if map is initialized before running map-dependent code
+
+            if (!map) return; 
+
+
+
+            // Clear existing markers if we are re-rendering a route
+
+            map.eachLayer(layer => {
+
+                if (layer instanceof L.Marker) {
+
+                    map.removeLayer(layer);
+
+                }
+
+            });
+
+
+
+            // If a previous route was drawn, remove it
+
+            if (routePolyline) {
+
+                map.removeLayer(routePolyline);
+
+            }
+
+
+
+            // Create a map of stop IDs to their route position (if route is provided)
+
+            const stopToRouteIndex = {};
+
+            if (route) {
+
+                route.forEach((routeStop, routeIndex) => {
+
+                    stopToRouteIndex[routeStop.id] = routeIndex;
+
+                });
+
+            }
+
+
+
+            stops.forEach((stop, index) => {
+
+                const isDepot = stop.id === 'DEPOT';
+
+                let label;
+
+                let color;
+
+                let stopNumber = null;
+
+
+
+                if (isDepot) {
+
+                    label = 'D';
+
+                    color = 'red';
+
+                } else if (route && stopToRouteIndex.hasOwnProperty(stop.id)) {
+
+                    // Get the stop number from the optimized route
+
+                    // Route index 0 is depot, so first delivery is at index 1
+
+                    // We'll display the route index as the stop number (1, 2, 3, etc.)
+
+                    stopNumber = stopToRouteIndex[stop.id];
+
+                    label = stopNumber.toString();
+
+                    color = 'blue';
+
+                } else {
+
+                    // Check if shipment is selected (even without route)
+
+                    const isSelected = selectedShipments.has(stop.id);
+
+                    label = stop.id;
+
+                    color = isSelected ? 'blue' : 'gray';
+
+                }
+
+
+
+                // Simple SVG icon for numbers/depot
+
+                const svgIcon = L.divIcon({
+
+                    className: 'custom-marker',
+
+                    html: `<div style="background-color: ${color}; color: white; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 12px; border: 2px solid white; box-shadow: 0 0 5px ${color};">${label}</div>`,
+
+                    iconSize: [24, 24],
+
+                    iconAnchor: [12, 12]
+
+                });
+
+
+
+                const marker = L.marker([stop.lat, stop.lng], { icon: svgIcon })
+
+                    .addTo(map)
+
+                    .bindPopup(`<b>${stop.consignee}</b><br>${stop.address}<br>Shipment ID: ${stop.id}${stopNumber !== null ? `<br>Stop #${stopNumber}` : ''}`);
+
+
+
+                // Add a permanent tooltip showing the shipment ID if part of an optimized route
+
+                if (route && !isDepot && stopNumber !== null) {
+
+                     marker.bindTooltip(stop.id, { permanent: true, direction: 'right' }).openTooltip();
+
+                }
+
+            });
+
+
+
+            if (route) {
+
+                drawRoutePolyline(route);
+
+            }
+
+        }
+
+
+
+        /**
+
+         * Draws the optimized route polyline on the map.
+
+         * @param {Array<Object>} optimizedRoute - The sequenced list of stops.
+
+         */
+
+        function drawRoutePolyline(optimizedRoute) {
+
+            if (!map) return;
+
+            const latLngs = optimizedRoute.map(stop => [stop.lat, stop.lng]);
+
+            
+
+            // Add the Depot back as the final stop to complete the loop
+
+            latLngs.push([DEPOT.lat, DEPOT.lng]);
+
+
+
+            routePolyline = L.polyline(latLngs, {
+
+                color: '#22c55e', // Green for the route line
+
+                weight: 5,
+
+                opacity: 0.8,
+
+                dashArray: '10, 5' // Dashed line for visualization
+
+            }).addTo(map);
+
+
+
+            // Fit the map bounds to the route
+
+            map.fitBounds(routePolyline.getBounds());
+
+        }
+
+
+
+
+
+        /**
+
+         * Renders the list of shipments in the side panel.
+
+         * @param {Array<Object>} shipments - Array of shipment objects.
+
+         * @param {Array<Object>} [route=null] - Optional optimized route sequence.
+
+         */
+
+        function renderShipmentList(shipments, route = null) {
+
+            const selectedListEl = document.getElementById('selected-shipment-list');
+
+            const notSelectedListEl = document.getElementById('not-selected-shipment-list');
+
+            
+
+            selectedListEl.innerHTML = '';
+
+            notSelectedListEl.innerHTML = '';
+
+            
+
+            // Create a map of route positions if route is provided
+
+            const stopToRouteIndex = {};
+
+            if (route) {
+
+                route.forEach((routeStop, routeIndex) => {
+
+                    stopToRouteIndex[routeStop.id] = routeIndex;
+
+                });
+
+            }
+
+            
+
+            // Separate shipments into selected and not selected
+
+            const selectedShipmentList = [];
+
+            const notSelectedShipmentList = [];
+
+            
+
+            shipments.forEach(shipment => {
+
+                if (shipment.id === 'DEPOT') return; // Skip depot
+
+                
+
+                const isSelected = selectedShipments.has(shipment.id);
+
+                
+
+                if (isSelected) {
+
+                    selectedShipmentList.push(shipment);
+
+                } else {
+
+                    notSelectedShipmentList.push(shipment);
+
+                }
+
+            });
+
+            
+
+            // If route is provided, use route order for selected shipments
+
+            const displaySelectedList = route ? route.filter(s => s.id !== 'DEPOT' && selectedShipments.has(s.id)) : selectedShipmentList;
+
+            
+
+            // Render selected shipments
+
+            displaySelectedList.forEach((shipment) => {
+
+                const listItem = createShipmentListItem(shipment, route, stopToRouteIndex, true);
+
+                selectedListEl.appendChild(listItem);
+
+            });
+
+            
+
+            // Render not selected shipments (only if no route is displayed)
+
+            if (!route) {
+
+                notSelectedShipmentList.forEach((shipment) => {
+
+                    const listItem = createShipmentListItem(shipment, route, stopToRouteIndex, false);
+
+                    notSelectedListEl.appendChild(listItem);
+
+                });
+
+            }
+
+            
+
+            // Update select all checkbox state
+
+            updateSelectAllCheckbox();
+
+        }
+
+        
+
+        /**
+
+         * Creates a shipment list item element
+
+         * @param {Object} shipment - The shipment object
+
+         * @param {Array|null} route - Optional route array
+
+         * @param {Object} stopToRouteIndex - Map of stop IDs to route indices
+
+         * @param {boolean} isSelected - Whether the shipment is selected
+
+         * @returns {HTMLElement} The list item element
+
+         */
+
+        function createShipmentListItem(shipment, route, stopToRouteIndex, isSelected) {
+
+            const listItem = document.createElement('li');
+
+            listItem.className = 'flex items-center space-x-3 p-3 bg-slate-700 rounded-lg transition hover:bg-slate-600 shadow-md';
+
+            
+
+            let content = '';
+
+            
+
+            // If route is provided and shipment is in route, show stop number
+
+            if (route && stopToRouteIndex.hasOwnProperty(shipment.id)) {
+
+                const order = stopToRouteIndex[shipment.id];
+
+                content = `
+
+                    <div class="flex-shrink-0 w-6 h-6 rounded-full bg-blue-500 text-white flex items-center justify-center font-bold text-xs">
+
+                        ${order}
+
+                    </div>
+
+                `;
+
+            } else if (!route) {
+
+                // Show checkbox when not in route view
+
+                content = `
+
+                    <input type="checkbox" 
+
+                           class="shipment-checkbox w-4 h-4 text-sky-400 bg-slate-700 border-slate-600 rounded focus:ring-sky-500" 
+
+                           data-shipment-id="${shipment.id}"
+
+                           ${isSelected ? 'checked' : ''}>
+
+                `;
+
+            }
+
+            
+
+            content += `
+
+                <div class="text-sm flex-1 cursor-pointer" onclick="if(map) map.flyTo([${shipment.lat}, ${shipment.lng}], 16)">
+
+                    <div class="font-bold text-base text-sky-300">${shipment.consignee} (${shipment.id})</div>
+
+                    <div class="text-slate-400">${shipment.address}</div>
+
+                </div>
+
+            `;
+
+            
+
+            listItem.innerHTML = content;
+
+            
+
+            // Add checkbox change event listener if not in route view
+
+            if (!route) {
+
+                const checkbox = listItem.querySelector('.shipment-checkbox');
+
+                if (checkbox) {
+
+                    checkbox.addEventListener('change', (e) => {
+
+                        e.stopPropagation();
+
+                        handleShipmentSelection(shipment.id, checkbox.checked);
+
+                    });
+
+                }
+
+            }
+
+            
+
+            return listItem;
+
+        }
+
+
+
+        // --- Driver Selection Functions ---
+
+
+
+        /**
+
+         * Renders the list of available drivers
+
+         */
+
+        function renderDriverList() {
+
+            const driverListEl = document.getElementById('driver-list');
+
+            if (!driverListEl) return;
+
+            
+
+            driverListEl.innerHTML = '';
+
+            
+
+            // Filter to only show available drivers
+
+            const availableDrivers = mockDrivers.filter(driver => driver.status === 'available');
+
+            
+
+            if (availableDrivers.length === 0) {
+
+                driverListEl.innerHTML = '<li class="text-slate-400 text-sm p-3">No drivers available at this time.</li>';
+
+                return;
+
+            }
+
+            
+
+            availableDrivers.forEach(driver => {
+
+                const listItem = document.createElement('li');
+
+                const isSelected = selectedDriver && selectedDriver.id === driver.id;
+
+                
+
+                listItem.className = `flex items-center space-x-3 p-3 bg-slate-600 rounded-lg transition cursor-pointer hover:bg-slate-500 ${
+
+                    isSelected ? 'ring-2 ring-sky-400 bg-slate-500' : ''
+
+                }`;
+
+                
+
+                listItem.innerHTML = `
+
+                    <div class="flex-shrink-0">
+
+                        <input type="radio" 
+
+                               name="driver-selection" 
+
+                               value="${driver.id}"
+
+                               class="driver-radio w-4 h-4 text-sky-400 bg-slate-700 border-slate-500 focus:ring-sky-500"
+
+                               ${isSelected ? 'checked' : ''}>
+
+                    </div>
+
+                    <div class="flex-1">
+
+                        <div class="font-semibold text-white">${driver.name}</div>
+
+                        <div class="text-sm text-slate-300">${driver.vehicle}</div>
+
+                        <div class="text-xs text-slate-400">${driver.phone}</div>
+
+                    </div>
+
+                    ${isSelected ? '<span class="text-green-400 font-semibold text-sm">✓ Selected</span>' : ''}
+
+                `;
+
+                
+
+                listItem.addEventListener('click', (e) => {
+
+                    // Don't trigger if clicking the radio button itself
+
+                    if (e.target.type !== 'radio') {
+
+                        const radio = listItem.querySelector('.driver-radio');
+
+                        if (radio) {
+
+                            radio.checked = true;
+
+                            handleDriverSelection(driver.id);
+
+                        }
+
+                    }
+
+                });
+
+                
+
+                // Handle radio button change
+
+                const radio = listItem.querySelector('.driver-radio');
+
+                if (radio) {
+
+                    radio.addEventListener('change', (e) => {
+
+                        if (e.target.checked) {
+
+                            handleDriverSelection(driver.id);
+
+                        }
+
+                    });
+
+                }
+
+                
+
+                driverListEl.appendChild(listItem);
+
+            });
+
+        }
+
+
+
+        /**
+
+         * Handles driver selection
+
+         * @param {string} driverId - The ID of the selected driver
+
+         */
+
+        function handleDriverSelection(driverId) {
+
+            selectedDriver = mockDrivers.find(driver => driver.id === driverId);
+
+            
+
+            if (selectedDriver) {
+
+                // Update the selected driver display
+
+                const displayEl = document.getElementById('selected-driver-display');
+
+                const nameEl = document.getElementById('selected-driver-name');
+
+                
+
+                if (displayEl && nameEl) {
+
+                    nameEl.textContent = `${selectedDriver.name} (${selectedDriver.vehicle})`;
+
+                    displayEl.classList.remove('hidden');
+
+                }
+
+                
+
+                // Re-render driver list to update selected state
+
+                renderDriverList();
+
+                
+
+                // Show assignment summary modal
+
+                showAssignmentModal();
+
+            }
+
+        }
+
+
+
+        /**
+
+         * Shows the driver selection interface
+
+         */
+
+        function showDriverSelection() {
+
+            const container = document.getElementById('driver-selection-container');
+
+            if (container) {
+
+                container.classList.remove('hidden');
+
+                renderDriverList();
+
+            }
+
+        }
+
+
+
+        /**
+
+         * Hides the driver selection interface
+
+         */
+
+        function hideDriverSelection() {
+
+            const container = document.getElementById('driver-selection-container');
+
+            const displayEl = document.getElementById('selected-driver-display');
+
+            
+
+            if (container) {
+
+                container.classList.add('hidden');
+
+            }
+
+            
+
+            if (displayEl) {
+
+                displayEl.classList.add('hidden');
+
+            }
+
+            
+
+            selectedDriver = null;
+
+        }
+
+
+
+        // --- Assignment Summary Modal Functions ---
+
+
+
+        /**
+
+         * Shows the assignment summary modal with driver, shipments, and route details
+
+         */
+
+        function showAssignmentModal() {
+
+            if (!selectedDriver || !currentOptimizedRoute) return;
+
+            
+
+            const modal = document.getElementById('assignment-modal-overlay');
+
+            if (!modal) return;
+
+            
+
+            // Populate driver details
+
+            const driverDetailsEl = document.getElementById('modal-driver-details');
+
+            if (driverDetailsEl) {
+
+                driverDetailsEl.innerHTML = `
+
+                    <div>
+
+                        <div class="text-sm text-slate-400">Name</div>
+
+                        <div class="text-lg font-semibold text-white">${selectedDriver.name}</div>
+
+                    </div>
+
+                    <div>
+
+                        <div class="text-sm text-slate-400">Vehicle</div>
+
+                        <div class="text-lg font-semibold text-white">${selectedDriver.vehicle}</div>
+
+                    </div>
+
+                    <div>
+
+                        <div class="text-sm text-slate-400">Phone</div>
+
+                        <div class="text-lg font-semibold text-white">${selectedDriver.phone}</div>
+
+                    </div>
+
+                    <div>
+
+                        <div class="text-sm text-slate-400">Driver ID</div>
+
+                        <div class="text-lg font-semibold text-white">${selectedDriver.id}</div>
+
+                    </div>
+
+                `;
+
+            }
+
+            
+
+            // Populate shipments list
+
+            const shipmentsEl = document.getElementById('modal-shipments-list');
+
+            if (shipmentsEl && currentOptimizedRoute) {
+
+                const shipmentStops = currentOptimizedRoute.filter(stop => stop.id !== 'DEPOT');
+
+                shipmentsEl.innerHTML = shipmentStops.map((shipment, index) => {
+
+                    return `
+
+                        <div class="flex items-center space-x-4 p-3 bg-slate-700 rounded-lg">
+
+                            <div class="flex-shrink-0 w-8 h-8 rounded-full bg-blue-500 text-white flex items-center justify-center font-bold text-sm">
+
+                                ${index + 1}
+
+                            </div>
+
+                            <div class="flex-1">
+
+                                <div class="font-semibold text-white">${shipment.consignee}</div>
+
+                                <div class="text-sm text-slate-300">${shipment.address}</div>
+
+                                <div class="text-xs text-slate-400 mt-1">Shipment ID: ${shipment.id}</div>
+
+                            </div>
+
+                        </div>
+
+                    `;
+
+                }).join('');
+
+            }
+
+            
+
+            // Populate route preview
+
+            const routePreviewEl = document.getElementById('modal-route-preview');
+
+            if (routePreviewEl && currentOptimizedRoute && currentRouteDistance) {
+
+                const totalMiles = (currentRouteDistance * 0.621371).toFixed(2);
+
+                const routeSteps = currentOptimizedRoute.map((stop, index) => {
+
+                    if (stop.id === 'DEPOT') {
+
+                        return `<div class="flex items-center space-x-3 p-2 text-slate-300">
+
+                            <span class="font-bold text-red-400">D</span>
+
+                            <span>${stop.consignee} - ${stop.address}</span>
+
+                        </div>`;
+
+                    } else {
+
+                        return `<div class="flex items-center space-x-3 p-2 text-slate-300">
+
+                            <span class="font-bold text-blue-400">${index}</span>
+
+                            <span>${stop.consignee} - ${stop.address}</span>
+
+                        </div>`;
+
+                    }
+
+                }).join('');
+
+                
+
+                routePreviewEl.innerHTML = `
+
+                    <div class="p-4 bg-slate-700 rounded-lg">
+
+                        <div class="mb-4">
+
+                            <div class="text-sm text-slate-400">Total Distance</div>
+
+                            <div class="text-2xl font-bold text-green-400">${totalMiles} miles</div>
+
+                        </div>
+
+                        <div class="mb-4">
+
+                            <div class="text-sm text-slate-400">Total Stops</div>
+
+                            <div class="text-xl font-semibold text-white">${currentOptimizedRoute.length} stops (including depot)</div>
+
+                        </div>
+
+                        <div class="border-t border-slate-600 pt-4 mt-4">
+
+                            <div class="text-sm font-semibold text-slate-300 mb-2">Route Sequence:</div>
+
+                            <div class="space-y-1 max-h-48 overflow-y-auto">
+
+                                ${routeSteps}
+
+                            </div>
+
+                        </div>
+
+                    </div>
+
+                `;
+
+            }
+
+            
+
+            // Show modal
+
+            modal.classList.remove('hidden');
+
+        }
+
+
+
+        /**
+
+         * Hides the assignment summary modal
+
+         */
+
+        function hideAssignmentModal() {
+
+            const modal = document.getElementById('assignment-modal-overlay');
+
+            if (modal) {
+
+                modal.classList.add('hidden');
+
+            }
+
+        }
+
+
+
+        // --- Selection Management Functions ---
+
+
+
+        /**
+
+         * Handles individual shipment selection/deselection
+
+         * @param {string} shipmentId - The ID of the shipment
+
+         * @param {boolean} isSelected - Whether the shipment is selected
+
+         */
+
+        function handleShipmentSelection(shipmentId, isSelected) {
+
+            if (isSelected) {
+
+                selectedShipments.add(shipmentId);
+
+            } else {
+
+                selectedShipments.delete(shipmentId);
+
+            }
+
+            // If route exists and selections change, clear the route
+
+            if (routePolyline) {
+
+                map.removeLayer(routePolyline);
+
+                routePolyline = null;
+
+                // Clear route data
+
+                currentOptimizedRoute = null;
+
+                currentRouteDistance = null;
+
+                // Hide driver selection when route is cleared
+
+                hideDriverSelection();
+
+            }
+
+            
+
+            updateOptimizeButton();
+
+            updateSelectAllCheckbox();
+
+            // Refresh map markers to reflect selection state
+
+            if (map) {
+
+                renderShipmentsOnMap(allStops);
+
+            }
+
+            // Re-render shipment lists to move items between selected/not selected
+
+            renderShipmentList(mockShipments);
+
+        }
+
+
+
+        /**
+
+         * Updates the select all checkbox state based on current selections
+
+         */
+
+        function updateSelectAllCheckbox() {
+
+            const selectAllCheckbox = document.getElementById('select-all-checkbox');
+
+            if (!selectAllCheckbox) return;
+
+            
+
+            const allSelected = mockShipments.length > 0 && 
+
+                                mockShipments.every(shipment => selectedShipments.has(shipment.id));
+
+            selectAllCheckbox.checked = allSelected;
+
+            selectAllCheckbox.indeterminate = selectedShipments.size > 0 && selectedShipments.size < mockShipments.length;
+
+        }
+
+
+
+        /**
+
+         * Handles select all checkbox change
+
+         */
+
+        function handleSelectAll(selectAll) {
+
+            if (selectAll) {
+
+                // Select all shipments
+
+                mockShipments.forEach(shipment => {
+
+                    selectedShipments.add(shipment.id);
+
+                });
+
+            } else {
+
+                // Deselect all shipments
+
+                selectedShipments.clear();
+
+            }
+
+            
+
+            // If route exists and selections change, clear the route
+
+            if (routePolyline) {
+
+                map.removeLayer(routePolyline);
+
+                routePolyline = null;
+
+                // Clear route data
+
+                currentOptimizedRoute = null;
+
+                currentRouteDistance = null;
+
+                // Hide driver selection when route is cleared
+
+                hideDriverSelection();
+
+            }
+
+            
+
+            updateOptimizeButton();
+
+            
+
+            // Refresh map markers to reflect selection state
+
+            if (map) {
+
+                renderShipmentsOnMap(allStops);
+
+            }
+
+            
+
+            // Re-render shipment lists to move items between selected/not selected
+
+            renderShipmentList(mockShipments);
+
+        }
+
+
+
+        /**
+
+         * Updates the optimize button state based on selection count
+
+         */
+
+        function updateOptimizeButton() {
+
+            const button = document.getElementById('optimize-button');
+
+            if (!button) return;
+
+            
+
+            const selectedCount = selectedShipments.size;
+
+            const shouldEnable = selectedCount >= 3;
+
+            
+
+            // If route is currently displayed, keep "Optimized" state
+
+            if (routePolyline && shouldEnable) {
+
+                button.disabled = false;
+
+                button.textContent = 'Optimized';
+
+                button.className = 'w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shadow-lg transition duration-150 ease-in-out';
+
+                return;
+
+            }
+
+            
+
+            button.disabled = !shouldEnable;
+
+            if (shouldEnable) {
+
+                button.textContent = '✨ Optimize Route';
+
+                button.className = 'w-full py-3 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg shadow-lg transition duration-150 ease-in-out';
+
+            } else {
+
+                button.className = 'w-full py-3 bg-slate-500 text-white font-semibold rounded-lg shadow-lg transition duration-150 ease-in-out cursor-not-allowed disabled:opacity-50 disabled:cursor-not-allowed';
+
+                if (selectedCount === 0) {
+
+                    button.textContent = '✨ Optimize Route';
+
+                } else {
+
+                    button.textContent = `✨ Optimize Route (${selectedCount}/3+ required)`;
+
+                }
+
+            }
+
+        }
+
+
+
+        // --- Phase 3: Core Optimization Logic (Nearest Neighbor) ---
+
+
+
+        /**
+
+         * Calculates the distance between two lat/lng points using the Haversine formula.
+
+         * @param {number} lat1 - Latitude of point 1.
+
+         * @param {number} lng1 - Longitude of point 1.
+
+         * @param {number} lat2 - Latitude of point 2.
+
+         * @param {number} lng2 - Longitude of point 2.
+
+         * @returns {number} Distance in kilometers.
+
+         */
+
+        function haversineDistance(lat1, lng1, lat2, lng2) {
+
+            const R = 6371; // Radius of Earth in kilometers
+
+            const dLat = (lat2 - lat1) * (Math.PI / 180);
+
+            const dLng = (lng2 - lng1) * (Math.PI / 180);
+
+
+
+            const a = 
+
+                Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+
+                Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+
+
+
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+            return R * c; // Distance in km
+
+        }
+
+
+
+        /**
+
+         * Implements the Nearest Neighbor algorithm to find an optimized route.
+
+         * @param {Array<Object>} stops - All stops including the DEPOT.
+
+         * @returns {Object} {route: Array<Object>, totalDistance: number}
+
+         */
+
+        function nearestNeighborRoute(stops) {
+
+            let unvisited = [...stops.filter(s => s.id !== 'DEPOT')]; // Shipments only
+
+            let currentStop = DEPOT;
+
+            let optimizedRoute = [DEPOT]; // Start with the depot
+
+            let totalDistance = 0;
+
+
+
+            while (unvisited.length > 0) {
+
+                let nearestDistance = Infinity;
+
+                let nearestStop = null;
+
+                let nearestIndex = -1;
+
+
+
+                // Find the nearest unvisited stop from the current stop
+
+                unvisited.forEach((stop, index) => {
+
+                    const dist = haversineDistance(
+
+                        currentStop.lat, currentStop.lng, 
+
+                        stop.lat, stop.lng
+
+                    );
+
+
+
+                    if (dist < nearestDistance) {
+
+                        nearestDistance = dist;
+
+                        nearestStop = stop;
+
+                        nearestIndex = index;
+
+                    }
+
+                });
+
+
+
+                // Move to the nearest stop
+
+                if (nearestStop) {
+
+                    optimizedRoute.push(nearestStop);
+
+                    totalDistance += nearestDistance;
+
+                    unvisited.splice(nearestIndex, 1); // Remove from unvisited list
+
+                    currentStop = nearestStop;
+
+                }
+
+            }
+
+
+
+            // Return to the depot to complete the route
+
+            const returnDistance = haversineDistance(
+
+                currentStop.lat, currentStop.lng, 
+
+                DEPOT.lat, DEPOT.lng
+
+            );
+
+            totalDistance += returnDistance;
+
+
+
+            return { route: optimizedRoute, totalDistance: totalDistance };
+
+        }
+
+
+
+        // --- Event Listener and Summary (Phase 4) ---
+
+
+
+        /**
+
+         * Handles the route optimization process when the button is clicked.
+
+         */
+
+        function handleOptimization() {
+
+            const button = document.getElementById('optimize-button');
+
+            const summaryEl = document.getElementById('route-summary');
+
+            
+
+            button.disabled = true;
+
+            button.textContent = 'Optimizing...';
+
+            summaryEl.innerHTML = '';
+
+
+
+            try {
+
+                // Get only selected shipments
+
+                const selectedShipmentList = mockShipments.filter(shipment => selectedShipments.has(shipment.id));
+
+                
+
+                if (selectedShipmentList.length === 0) {
+
+                    throw new Error('No shipments selected');
+
+                }
+
+                
+
+                // Create stops array with depot and selected shipments only
+
+                const selectedStops = [DEPOT, ...selectedShipmentList];
+
+                
+
+                // Execute the optimization
+
+                const { route, totalDistance } = nearestNeighborRoute(selectedStops);
+
+                
+
+                // Store the current optimized route
+
+                currentOptimizedRoute = route;
+
+                currentRouteDistance = totalDistance;
+
+                // Update UI elements - show all stops but only highlight selected ones in route
+
+                renderShipmentsOnMap(allStops, route); // Re-render markers with sequence and draw line
+
+                renderShipmentList(mockShipments, route); // Re-render list in optimized order
+
+
+
+                // Display summary
+
+                const totalMiles = (totalDistance * 0.621371).toFixed(2);
+
+                summaryEl.innerHTML = `
+
+                    <p class="font-medium text-lg text-green-400">Route Complete!</p>
+
+                    <p>Total Stops: ${route.length} (including depot)</p>
+
+                    <p>Total Estimated Distance: ${totalMiles} miles</p>
+
+                    <p class="text-xs text-slate-400 mt-2">Route starts and ends at Depot.</p>
+
+                `;
+
+                
+
+                // Update button to show "Optimized" state
+
+                button.disabled = false;
+
+                button.textContent = 'Optimized';
+
+                button.className = 'w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shadow-lg transition duration-150 ease-in-out';
+
+                
+
+                // Show driver selection interface
+
+                showDriverSelection();
+
+
+
+            } catch (error) {
+
+                console.error("Optimization failed:", error);
+
+                summaryEl.innerHTML = `<p class="text-red-400">Error: Could not calculate route. Check console for details.</p>`;
+
+                updateOptimizeButton();
+
+            }
+
+        }
+
+
+
+        // Initialize the application when DOM is ready
+
+        if (document.readyState === 'loading') {
+
+            document.addEventListener('DOMContentLoaded', () => {
+
+                // Add event listener to the optimize button
+
+                document.getElementById('optimize-button').addEventListener('click', handleOptimization);
+
+                
+
+                // Add event listener to the select all checkbox
+
+                const selectAllCheckbox = document.getElementById('select-all-checkbox');
+
+                if (selectAllCheckbox) {
+
+                    selectAllCheckbox.addEventListener('change', (e) => {
+
+                        handleSelectAll(e.target.checked);
+
+                    });
+
+                }
+
+                
+
+                // Initialize button state
+
+                updateOptimizeButton();
+
+                
+
+                // Add event listeners for modal
+
+                const closeModalBtn = document.getElementById('close-modal-btn');
+
+                const confirmAssignmentBtn = document.getElementById('confirm-assignment-btn');
+
+                const modalOverlay = document.getElementById('assignment-modal-overlay');
+
+                
+
+                if (closeModalBtn) {
+
+                    closeModalBtn.addEventListener('click', hideAssignmentModal);
+
+                }
+
+                
+
+                if (confirmAssignmentBtn) {
+
+                    confirmAssignmentBtn.addEventListener('click', () => {
+
+                        // Handle assignment confirmation
+
+                        alert(`Assignment confirmed for ${selectedDriver?.name || 'driver'}`);
+
+                        hideAssignmentModal();
+
+                    });
+
+                }
+
+                
+
+                // Close modal when clicking outside
+
+                if (modalOverlay) {
+
+                    modalOverlay.addEventListener('click', (e) => {
+
+                        if (e.target === modalOverlay) {
+
+                            hideAssignmentModal();
+
+                        }
+
+                    });
+
+                }
+
+                
+
+                // Initialize map after a short delay to ensure layout is ready
+
+                initializeMap();
+
+            });
+
+        } else {
+
+            // DOM is already loaded
+
+            document.getElementById('optimize-button').addEventListener('click', handleOptimization);
+
+            
+
+            // Add event listener to the select all checkbox
+
+            const selectAllCheckbox = document.getElementById('select-all-checkbox');
+
+            if (selectAllCheckbox) {
+
+                selectAllCheckbox.addEventListener('change', (e) => {
+
+                    handleSelectAll(e.target.checked);
+
+                });
+
+            }
+
+            
+
+            // Initialize button state
+
+            updateOptimizeButton();
+
+            
+
+            // Add event listeners for modal
+
+            const closeModalBtn = document.getElementById('close-modal-btn');
+
+            const confirmAssignmentBtn = document.getElementById('confirm-assignment-btn');
+
+            const modalOverlay = document.getElementById('assignment-modal-overlay');
+
+            
+
+            if (closeModalBtn) {
+
+                closeModalBtn.addEventListener('click', hideAssignmentModal);
+
+            }
+
+            
+
+            if (confirmAssignmentBtn) {
+
+                confirmAssignmentBtn.addEventListener('click', () => {
+
+                    // Handle assignment confirmation
+
+                    alert(`Assignment confirmed for ${selectedDriver?.name || 'driver'}`);
+
+                    hideAssignmentModal();
+
+                });
+
+            }
+
+            
+
+            // Close modal when clicking outside
+
+            if (modalOverlay) {
+
+                modalOverlay.addEventListener('click', (e) => {
+
+                    if (e.target === modalOverlay) {
+
+                        hideAssignmentModal();
+
+                    }
+
+                });
+
+            }
+
+            
+
+            initializeMap();
+
+        }
+
+    </script>
+
+</body>
+
+</html>
+
